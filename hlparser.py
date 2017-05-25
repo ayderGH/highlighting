@@ -18,6 +18,9 @@ class HighlightedParser:
         months = "|".join(calendar.month_name[1:13])
         self.date_pattern = "((" + months + ")\s+\d{,2},\s+\d{,4})"
 
+        # Define the ignore symbols
+        self.ignoresymbol_pattern = "[\s-]"
+
     @staticmethod
     def get_processed_html(html):
         """
@@ -32,12 +35,13 @@ class HighlightedParser:
     @staticmethod
     def prepare_text(text):
         """
-        Delete the noise symbols from a text.
+        Delete the noise symbols from the text.
         :param text: [str] Source text.
         :return: [str] Clear text.
         """
         text = re.sub('[^\x00-\x7F]+', ' ', text)
         text = re.sub(' +', ' ', text)
+        text = re.sub('<br>', '\n', text)
         text = re.sub('[\n\s]+', ' ', text)
         return text.strip()
 
@@ -60,9 +64,10 @@ class HighlightedParser:
             searching_text_pattern = re.sub(self.money_pattern, self.money_pattern, searching_text_pattern)
         if ignore_date:
             searching_text_pattern = re.sub(self.date_pattern, self.date_pattern, searching_text_pattern)
+        searching_text_pattern = re.sub(' ', self.ignoresymbol_pattern, searching_text_pattern)
         searching_text_pattern = "({})".format(searching_text_pattern)
 
-        return re.findall(searching_text_pattern, text)
+        return re.findall(searching_text_pattern, text, flags=re.IGNORECASE)
 
 
 if __name__ == "__main__":
@@ -88,8 +93,6 @@ if __name__ == "__main__":
 
     # E. g.
     # python3 hlparser.py --url="https://www.sec.gov/Archives/edgar/data/789019/000119312516742796/d245252d10q.htm" --searching_url="https://www.sec.gov/Archives/edgar/data/789019/000156459017000654/msft-10q_20161231.htm" --highlighted_text="Basic earnings per share (“EPS”) is computed based on the weighted average number of shares of common"
-
-
 
     # old_filing_url = "https://www.sec.gov/Archives/edgar/data/789019/000119312516742796/d245252d10q.htm"
     # new_filing_url = "https://www.sec.gov/Archives/edgar/data/789019/000156459017000654/msft-10q_20161231.htm"

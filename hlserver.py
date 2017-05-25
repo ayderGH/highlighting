@@ -2,6 +2,8 @@ import cherrypy
 from hlparser import HighlightedParser
 import requests
 import json
+import argparse
+
 
 class HighlightedServer(object):
 
@@ -33,8 +35,12 @@ class HighlightedServer(object):
 
 
 if __name__ == "__main__":
-    cherrypy.config.update({'server.socket_host': "127.0.0.1"})
-    cherrypy.config.update({'server.socket_port': 8001})
+    argparser = argparse.ArgumentParser(description="Highlighted Tool")
+    argparser.add_argument("--port", type=int, default="8081", help="port")
+    args = argparser.parse_args()
+
+    # cherrypy.config.update({'server.socket_host': "127.0.0.1"})
+    cherrypy.config.update({'server.socket_port': args.port})
 
     cherrypy.quickstart(HighlightedServer())
     cherrypy.engine.block()
