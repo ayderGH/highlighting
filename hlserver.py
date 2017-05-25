@@ -27,19 +27,20 @@ class HighlightedServer(object):
 
         new_filing_text = hp.get_processed_html(new_filing_html.text)
 
-        matches = hp.find_text(highlighted_text, new_filing_text, ignore_money=ignore_money, ignore_date=ignore_date)
-        if len(matches) > 0:
-            return json.dumps({"new_highlighted_text": matches[0][0]})
+        sentence = hp.find_text(highlighted_text, new_filing_text, ignore_money=ignore_money, ignore_date=ignore_date)
+        if len(sentence) > 0:
+            return json.dumps({"new_highlighted_text": sentence})
         else:
             return json.dumps({"new_highlighted_text": ""})
 
 
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser(description="Highlighted Tool")
-    argparser.add_argument("--port", type=int, default="8081", help="port")
+    argparser.add_argument("--host", type=str, default="localhost", help="Host")
+    argparser.add_argument("--port", type=int, default="8081", help="Port")
     args = argparser.parse_args()
 
-    # cherrypy.config.update({'server.socket_host': "127.0.0.1"})
+    cherrypy.config.update({'server.socket_host': args.host})
     cherrypy.config.update({'server.socket_port': args.port})
 
     cherrypy.quickstart(HighlightedServer())
