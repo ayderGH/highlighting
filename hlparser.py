@@ -3,6 +3,12 @@ from bs4 import BeautifulSoup
 import calendar
 import argparse
 import requests
+from fuzzywuzzy import fuzz
+import multiprocessing
+from multiprocessing import Pool
+from functools import partial
+from tqdm import tqdm
+from time import time
 
 
 class HighlightedParser:
@@ -10,7 +16,6 @@ class HighlightedParser:
 
     """
     def __init__(self):
-
         # Define money pattern
         self.money_pattern = "\$([\d\.]+(\s+[mb]illion)?)"
 
@@ -41,11 +46,14 @@ class HighlightedParser:
         """
         text = re.sub('[^\x00-\x7F]+', ' ', text)
         text = re.sub(' +', ' ', text)
+        # text = re.sub('\n\s*(?=[A-Z])', '. ', text)
+        # text = re.sub('\.+', '.', text)
         text = re.sub('<br>', '\n', text)
+        text = re.sub('\n{2,}', '\.', text)
         text = re.sub('[\n\s]+', ' ', text)
         return text.strip()
 
-    def find_text(self, searching_text, text, ignore_date=False, ignore_money=False):
+    def find(self, searching_text, text, ignore_date=False, ignore_money=False):
         """
 
         :param searching_text:
@@ -69,7 +77,79 @@ class HighlightedParser:
 
         match = re.search(searching_text_pattern, text, flags=re.IGNORECASE)
 
-        return match.group('target')
+        return match.group('target') if match is not None else ""
+
+    @staticmethod
+    def split_sentences(text):
+        return re.split("(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\?)\s", text)
+
+    @staticmethod
+    def partial_ratio(pattern, sentence):
+        return fuzz.partial_ratio(pattern, sentence)
+
+    @staticmethod
+    def partial_fuzzy_searching(index, pattern, sentences, depth):
+        s = ' '.join(sentences[index:index + depth])
+        ratio = fuzz.partial_ratio(s, pattern)
+        return index, ratio, s
+
+    def fuzzy_find_all(self, pattern, text, min_ratio=75, depth=2, min_sentence_length=3):
+        """
+
+        :param pattern:
+        :param text:
+        :param min_ratio:
+        :param depth:
+        :param min_sentence_length:
+        :return:
+        """
+
+        print("fuzzy searching...")
+
+        t0 = time()
+
+        pattern = self.prepare_text(pattern)
+        text = self.prepare_text(text)
+
+        pattern = pattern.replace("(", "\(")
+        pattern = pattern.replace(")", "\)")
+
+        if depth == 0:
+            pattern_sentences = self.split_sentences(pattern)
+            depth = len(pattern_sentences)
+
+        sentences = self.split_sentences(text)
+        sentences = [s for s in sentences if len(s.split(' ')) > min_sentence_length]
+
+        'run multiprocessing calculation'
+        cpu_count = multiprocessing.cpu_count()
+        pool = Pool(cpu_count)
+        indices = range(0, len(sentences) - depth + 1)
+        ratios = pool.map(partial(self.partial_fuzzy_searching,
+                                  pattern=pattern,
+                                  sentences=sentences,
+                                  depth=depth),
+                          indices)
+        pool.terminate()
+
+        print("Elapsed time: {} s".format(time() - t0))
+
+        best_ratios = [(i, r, s) for i, r, s in ratios if r > min_ratio]
+
+        if len(best_ratios) > 0:
+            best_ratios.sort(key=lambda r: r[1], reverse=True)
+            # b = best_ratios[0]
+            # return sentences[b[0]:b[0]+depth]
+            return best_ratios
+        else:
+            return ""
+
+    def fuzzy_find_one(self, pattern, text, min_ratio=75, depth=2, min_sentence_length=3):
+        best_ratios = self.fuzzy_find_all(pattern, text, min_ratio, depth, min_sentence_length)
+        if len(best_ratios) > 0:
+            return best_ratios[0][2]
+        else:
+            return ""
 
 
 if __name__ == "__main__":
@@ -99,6 +179,7 @@ if __name__ == "__main__":
     old_filing_url = "https://www.sec.gov/Archives/edgar/data/789019/000119312516742796/d245252d10q.htm"
     new_filing_url = "https://www.sec.gov/Archives/edgar/data/789019/000156459017000654/msft-10q_20161231.htm"
 
+    print("Loading url...")
     old_filing_html = requests.get(old_filing_url)
     new_filing_html = requests.get(new_filing_url)
 
@@ -117,6 +198,17 @@ if __name__ == "__main__":
     exchange contracts sold were $5.2 billion and $5.3 billion, respectively.
     """
 
+    mismatch_data_money_searching_text_1 = """
+    Foreign currency risks related to certain non-U.S. dollar denominated securities are hedged using
+    foreign exchange forward contracts that are designated as fair value hedging instruments.
+    As of 16/01/12 and Jun 30, the total notional amounts of these foreign
+    exchange contracts sold were $5.2 billion and $5.3 billion, respectively.
+    """
+
+    'foreign currency risks related to certain non-u.s. dollar denominated securities are hedged using ' \
+    'foreign exchange forward contracts that are designated as fair value hedging instruments. as of december 31, ' \
+    '2016 and june 30, 2016, the total notional amounts of these foreign exchange contracts sold were $4.5 billion and'
+
     mismatch_data_money_searching_text_2 = """
     Securities held in our equity and other investments portfolio are subject to market price risk.
     Market price risk is managed relative to broad-based global and domestic equity indices using certain
@@ -134,10 +226,22 @@ if __name__ == "__main__":
     old_filing_text = hp.get_processed_html(old_filing_html.text)
     new_filing_text = hp.get_processed_html(new_filing_html.text)
 
-    matches_1 = hp.find_text(perfectly_searching_text, new_filing_text)
-    matches_2 = hp.find_text(mismatch_data_money_searching_text_1, new_filing_text, ignore_date=True, ignore_money=True)
-    matches_3 = hp.find_text(mismatch_data_money_searching_text_2, new_filing_text, ignore_date=True, ignore_money=True)
+    # matches_1 = hp.find_text(perfectly_searching_text, new_filing_text)
+    # matches_2 = hp.find_text(mismatch_data_money_searching_text_1, new_filing_text, ignore_date=True, ignore_money=True)
+    # matches_3 = hp.find_text(mismatch_data_money_searching_text_2, new_filing_text, ignore_date=True, ignore_money=True)
+    fuzzy_match = hp.fuzzy_find_one(mismatch_data_money_searching_text_1, new_filing_text)
 
-    print("Mathces_1: {}\n".format(matches_1))
-    print("Mathces_2: {}\n".format(matches_2))
-    print("Mathces_3: {}\n".format(matches_3))
+    print("fuzzy matching: {}".format(fuzzy_match))
+
+    # print("Mathces_1: {}\n".format(matches_1))
+    # print("Mathces_2: {}\n".format(matches_2))
+    # print("Mathces_3: {}\n".format(matches_3))
+    #
+    # print("\nUsing fuzzy algorithm:")
+    # matches_1 = hp.find_fuzz_text(perfectly_searching_text, new_filing_text)
+    # matches_2 = hp.find_fuzz_text(mismatch_data_money_searching_text_1, new_filing_text)
+    # matches_3 = hp.find_fuzz_text(mismatch_data_money_searching_text_2, new_filing_text)
+    #
+    # print("Mathces_1: {}\n".format(matches_1))
+    # print("Mathces_2: {}\n".format(matches_2))
+    # print("Mathces_3: {}\n".format(matches_3))

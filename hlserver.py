@@ -16,10 +16,15 @@ class HighlightedServer(object):
     @cherrypy.tools.json_out()
     def highlight(self):
         data = cherrypy.request.json
+
         highlighted_text = data['highlighted_text']
         new_filing_url = data['new_filing_url']
-        ignore_money = data['ignore_money'] if 'ignore_money' in data.keys() else True
-        ignore_date = data['ignore_date'] if 'ignore_date' in data.keys() else True
+        ignore_money = bool(data['ignore_money']) if 'ignore_money' in data.keys() else True
+        ignore_date = bool(data['ignore_date']) if 'ignore_date' in data.keys() else True
+        fuzzy = bool(data['fuzzy']) if 'fuzzy' in data.keys() else False
+        min_ratio = int(data['min_ratio']) if 'min_ratio' in data.keys() else 75
+        depth = int(data['depth']) if 'depth' in data.keys() else 0
+        min_sentence_length = int(data['min_sentence_length']) if 'min_sentence_length' in data.keys() else 3
 
         new_filing_html = requests.get(new_filing_url)
 
@@ -27,7 +32,11 @@ class HighlightedServer(object):
 
         new_filing_text = hp.get_processed_html(new_filing_html.text)
 
-        sentence = hp.find_text(highlighted_text, new_filing_text, ignore_money=ignore_money, ignore_date=ignore_date)
+        if not fuzzy:
+            sentence = hp.find(highlighted_text, new_filing_text, ignore_money=ignore_money, ignore_date=ignore_date)
+        else:
+            sentence = hp.fuzzy_find_one(highlighted_text, new_filing_text, min_ratio=min_ratio, depth=depth, min_sentence_length=min_sentence_length)
+
         if len(sentence) > 0:
             return json.dumps({"new_highlighted_text": sentence})
         else:
