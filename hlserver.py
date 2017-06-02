@@ -38,7 +38,10 @@ class HighlightedServer(object):
             sentence = hp.fuzzy_find_one(highlighted_text, new_filing_text, min_ratio=min_ratio, depth=depth, min_sentence_length=min_sentence_length)
 
         if len(sentence) > 0:
-            return json.dumps({"new_highlighted_text": sentence})
+            if fuzzy:
+                return json.dumps({"new_highlighted_text": sentence[2], "ratio": sentence[1]})
+            else:
+                return json.dumps({"new_highlighted_text": sentence})
         else:
             return json.dumps({"new_highlighted_text": ""})
 

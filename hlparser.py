@@ -138,7 +138,7 @@ class HighlightedParser:
                           indices)
         pool.terminate()
 
-        print("Elapsed time: {} s".format(time() - t0))
+        print("Elapsed time: {}(s)".format(time() - t0))
 
         best_ratios = [(i, r, s) for i, r, s in ratios if r > min_ratio]
 
