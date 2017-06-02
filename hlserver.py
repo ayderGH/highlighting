@@ -30,7 +30,7 @@ class HighlightedServer(object):
 
         hp = HighlightedParser()
 
-        new_filing_text = hp.get_processed_html(new_filing_html.text)
+        new_filing_text = hp.extract_html_text(new_filing_html.text)
 
         if not fuzzy:
             sentence = hp.find(highlighted_text, new_filing_text, ignore_money=ignore_money, ignore_date=ignore_date)

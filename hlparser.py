@@ -15,6 +15,7 @@ class HighlightedParser:
     """
 
     """
+
     def __init__(self):
         # Define money pattern
         self.money_pattern = "\$([\d\.]+(\s+[mb]illion)?)"
@@ -26,8 +27,10 @@ class HighlightedParser:
         # Define the ignore symbols
         self.ignoresymbol_pattern = "[\s-]+"
 
+        self.newline = '<NEWLINE>'
+
     @staticmethod
-    def get_processed_html(html):
+    def extract_html_text(html):
         """
         Represents the HTML text like as the sequence of words and punctuations.
         :return: [str]
@@ -37,21 +40,22 @@ class HighlightedParser:
         soup = BeautifulSoup(pretty_html, 'html5lib')
         return soup.get_text()
 
-    @staticmethod
-    def prepare_text(text):
+    def prepare_text(self, text):
         """
         Delete the noise symbols from the text.
         :param text: [str] Source text.
         :return: [str] Clear text.
         """
-        text = re.sub('[^\x00-\x7F]+', ' ', text)
-        text = re.sub(' +', ' ', text)
-        # text = re.sub('\n\s*(?=[A-Z])', '. ', text)
-        # text = re.sub('\.+', '.', text)
-        text = re.sub('<br>', '\n', text)
-        text = re.sub('\n{2,}', '\.', text)
-        text = re.sub('[\n\s]+', ' ', text)
-        return text.strip()
+        s = text
+        s = re.sub("[\u000A\u0085\u2028\u2029]", self.newline, s)
+        s = re.sub("{}\s*{}".format(self.newline, self.newline), ".\n", s)
+        s = re.sub(self.newline, " ", s)
+        s = re.sub("\n{2,}", ".\n", s)
+        s = re.sub("\.+", ".", s)
+        s = re.sub("\s+", " ", s)
+        s = re.sub("\n", " ", s)
+
+        return s.strip()
 
     def find(self, searching_text, text, ignore_date=False, ignore_money=False):
         """
@@ -80,8 +84,10 @@ class HighlightedParser:
         return match.group('target') if match is not None else ""
 
     @staticmethod
-    def split_sentences(text):
-        return re.split("(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\?)\s", text)
+    def split_sentences(text, min_sentence_length=3):
+        min_sentence_length = max(1, min_sentence_length)
+        sentences = re.split("(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\?)\s", text)
+        return [s.strip() for s in sentences if len(s) >= min_sentence_length]
 
     @staticmethod
     def partial_ratio(pattern, sentence):
@@ -93,7 +99,7 @@ class HighlightedParser:
         ratio = fuzz.partial_ratio(s, pattern)
         return index, ratio, s
 
-    def fuzzy_find_all(self, pattern, text, min_ratio=75, depth=2, min_sentence_length=3):
+    def fuzzy_find_all(self, pattern, text, min_ratio=75, depth=2, min_sentence_length=2):
         """
 
         :param pattern:
@@ -138,8 +144,6 @@ class HighlightedParser:
 
         if len(best_ratios) > 0:
             best_ratios.sort(key=lambda r: r[1], reverse=True)
-            # b = best_ratios[0]
-            # return sentences[b[0]:b[0]+depth]
             return best_ratios
         else:
             return ""
@@ -147,7 +151,7 @@ class HighlightedParser:
     def fuzzy_find_one(self, pattern, text, min_ratio=75, depth=2, min_sentence_length=3):
         best_ratios = self.fuzzy_find_all(pattern, text, min_ratio, depth, min_sentence_length)
         if len(best_ratios) > 0:
-            return best_ratios[0][2]
+            return best_ratios[0]
         else:
             return ""
 
@@ -201,7 +205,7 @@ if __name__ == "__main__":
     mismatch_data_money_searching_text_1 = """
     Foreign currency risks related to certain non-U.S. dollar denominated securities are hedged using
     foreign exchange forward contracts that are designated as fair value hedging instruments.
-    As of 16/01/12 and Jun 30, the total notional amounts of these foreign
+    As of December 12, 2015 and June 30, 2017, the total notional amounts of these foreign
     exchange contracts sold were $5.2 billion and $5.3 billion, respectively.
     """
 
@@ -223,25 +227,15 @@ if __name__ == "__main__":
 
     hp = HighlightedParser()
 
-    old_filing_text = hp.get_processed_html(old_filing_html.text)
-    new_filing_text = hp.get_processed_html(new_filing_html.text)
+    old_filing_text = hp.extract_html_text(old_filing_html.text)
+    new_filing_text = hp.extract_html_text(new_filing_html.text)
 
-    # matches_1 = hp.find_text(perfectly_searching_text, new_filing_text)
-    # matches_2 = hp.find_text(mismatch_data_money_searching_text_1, new_filing_text, ignore_date=True, ignore_money=True)
-    # matches_3 = hp.find_text(mismatch_data_money_searching_text_2, new_filing_text, ignore_date=True, ignore_money=True)
+    matches_1 = hp.find(perfectly_searching_text, new_filing_text)
+    matches_2 = hp.find(mismatch_data_money_searching_text_1, new_filing_text, ignore_date=True, ignore_money=True)
+    matches_3 = hp.find(mismatch_data_money_searching_text_2, new_filing_text, ignore_date=True, ignore_money=True)
     fuzzy_match = hp.fuzzy_find_one(mismatch_data_money_searching_text_1, new_filing_text)
 
+    print("Mathces_1: {}\n".format(matches_1))
+    print("Mathces_2: {}\n".format(matches_2))
+    print("Mathces_3: {}\n".format(matches_3))
     print("fuzzy matching: {}".format(fuzzy_match))
-
-    # print("Mathces_1: {}\n".format(matches_1))
-    # print("Mathces_2: {}\n".format(matches_2))
-    # print("Mathces_3: {}\n".format(matches_3))
-    #
-    # print("\nUsing fuzzy algorithm:")
-    # matches_1 = hp.find_fuzz_text(perfectly_searching_text, new_filing_text)
-    # matches_2 = hp.find_fuzz_text(mismatch_data_money_searching_text_1, new_filing_text)
-    # matches_3 = hp.find_fuzz_text(mismatch_data_money_searching_text_2, new_filing_text)
-    #
-    # print("Mathces_1: {}\n".format(matches_1))
-    # print("Mathces_2: {}\n".format(matches_2))
-    # print("Mathces_3: {}\n".format(matches_3))
