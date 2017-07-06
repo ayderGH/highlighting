@@ -22,10 +22,11 @@ class HighlightedServer(object):
         ignore_money = bool(data['ignore_money']) if 'ignore_money' in data.keys() else True
         ignore_date = bool(data['ignore_date']) if 'ignore_date' in data.keys() else True
         fuzzy = bool(data['fuzzy']) if 'fuzzy' in data.keys() else False
+        LSI = bool(data['LSI']) if 'LSI' in data.keys() else False
         min_ratio = int(data['min_ratio']) if 'min_ratio' in data.keys() else 75
         depth = int(data['depth']) if 'depth' in data.keys() else 0
         min_sentence_length = int(data['min_sentence_length']) if 'min_sentence_length' in data.keys() else 3
-
+        num_search = int(data['num_search']) if 'min_sentence_length' in data.keys() else 3
         new_filing_html = requests.get(new_filing_url)
 
         hp = HighlightedParser()
@@ -33,7 +34,10 @@ class HighlightedServer(object):
         new_filing_text = hp.extract_html_text(new_filing_html.text)
 
         if not fuzzy:
-            sentence = hp.find(highlighted_text, new_filing_text, ignore_money=ignore_money, ignore_date=ignore_date)
+            if LSI:
+                sentence = hp.LSI_for_finding_request(new_filing_url, highlighted_text, min_ratio, num_search)
+            else:
+                sentence = hp.find(highlighted_text, new_filing_text, ignore_money=ignore_money, ignore_date=ignore_date)
         else:
             sentence = hp.fuzzy_find_one(highlighted_text, new_filing_text, min_ratio=min_ratio, depth=depth, min_sentence_length=min_sentence_length)
 
