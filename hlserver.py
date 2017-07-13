@@ -3,7 +3,9 @@ from hlparser import HighlightedParser
 import requests
 import json
 import argparse
-
+import hashlib
+import os
+import shutil
 
 class HighlightedServer(object):
 
@@ -27,15 +29,30 @@ class HighlightedServer(object):
         depth = int(data['depth']) if 'depth' in data.keys() else 0
         min_sentence_length = int(data['min_sentence_length']) if 'min_sentence_length' in data.keys() else 3
         num_search = int(data['num_search']) if 'min_sentence_length' in data.keys() else 3
-        new_filing_html = requests.get(new_filing_url)
-
+        force = bool(data['force']) if 'force' in data.keys() else False
+        name = hashlib.md5(new_filing_url.encode())
+        name = str(name.hexdigest())
+        path = os.getcwd()
+        try:
+            os.mkdir(path + '/data')
+            print('data created')
+        except:
+            print('data exist')
+        path = path + '/data/' + name
+        if force:
+            try:
+                shutil.rmtree(path)
+            except:
+                pass
+        try:
+            os.mkdir(path)
+        except:
+            pass
         hp = HighlightedParser()
-
-        new_filing_text = hp.extract_html_text(new_filing_html.text)
-
+        new_filing_text = hp.create_contents(new_filing_url, path, name)
         if not fuzzy:
             if LSI:
-                sentence = hp.LSI_for_finding_request(new_filing_url, highlighted_text, min_ratio, num_search)
+                sentence = hp.lsi_for_finding_request(new_filing_text, name, path, highlighted_text, min_ratio, num_search)
             else:
                 sentence = hp.find(highlighted_text, new_filing_text, ignore_money=ignore_money, ignore_date=ignore_date)
         else:

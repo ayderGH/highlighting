@@ -1,34 +1,33 @@
 import re
 from bs4 import BeautifulSoup
 import calendar
-import argparse
 import requests
 from fuzzywuzzy import fuzz
 import multiprocessing
 from multiprocessing import Pool
 from functools import partial
-from tqdm import tqdm
 from time import time
 import nltk
 from nltk.corpus import stopwords
 from collections import defaultdict
-import xlrd
-from gensim import corpora, models, utils , similarities
+from gensim import corpora, models, utils, similarities
 import Pyro4
 import logging
-import os 
+import os
 from os import listdir
 from os.path import isfile, join
 import urllib.request
 import hashlib
 import json
 
+
 class MyCorpus(object):
-     def __iter__(self):
+    def __iter__(self):
         for line in open('mycorpus.txt'):
-             # assume there's one document per line, tokens separated by whitespace
+            # assume there's one document per line, tokens separated by whitespace
             yield dictionary.doc2bow(line.lower().split())
-            
+
+
 class HighlightedParser:
     """
 
@@ -53,29 +52,28 @@ class HighlightedParser:
             return True
         else:
             return False
-            
+
+    @staticmethod
     def create_contents(url, path, name):
+
         """
         Determine by what tag the document is written. Extrarting content.
-        """        
-        name = name + '.json'                              
-        if HighlightedParser.model_exist(name , path):
+        """
+
+        name += '.json'
+        if HighlightedParser.model_exist(name, path):
             with open(path + '/' + name) as json_data:
                 sentences = json.load(json_data)
             print('content exist')
         else:
-            html=urllib.request.urlopen(url).read()
+            html = urllib.request.urlopen(url).read()
             soup = BeautifulSoup(html, 'html.parser')
-            pTag = False
-            divTag = False
-            text1  = soup.findAll(['div'])
+            text1 = soup.findAll(['div'])
             text2 = soup.findAll(['p'])
             if len(text1) < len(text2):
                 text = text2
-                pTag = True
             else:
                 text = text1
-                divTag = True
             need_del = []
             for i in range(0, len(text)):
                 if len(text[i].text.strip()) == 0:
@@ -100,88 +98,107 @@ class HighlightedParser:
                 json.dump(sentences, fp)
             print('content created')
         return sentences
-   
-    def answer(contents, sims,min_ratio, num_of_answ):
-        answ = {}
+
+    def answer(contents, sims, min_ratio, num_of_answ):
+        answer = {}
         try:
             for j in range(0, num_of_answ):
-                if sims[j][1] < min_ratio/100:
-                    break  
-                answ.update({contents[sims[j][0]]: str(sims[j][1] * 100)+' %'})
+                if sims[j][1] < min_ratio / 100:
+                    break
+                answer.update({contents[sims[j][0]]: str(sims[j][1] * 100) + ' %'})
         except:
             print("Unexpected error:", sys.exc_info()[0])
-        return answ
-        
+        return answer
+
     def find_similar(lsi, doc, corpus, dictionary, path, name):
-        name = name + "simIndex.index"
-        index = similarities.MatrixSimilarity(lsi[corpus])
-        index.save(path + '/' + name)
+        name += "simIndex.index"
+        if HighlightedParser.model_exist(name, path):
+            index = similarities.MatrixSimilarity.load(path + '/' + name)
+            print('matrix similarity exist')
+        else:
+            index = similarities.MatrixSimilarity(lsi[corpus])
+            index.save(path + '/' + name)
+            print('matrix similarity created')
         vec_bow = dictionary.doc2bow(doc.lower().split())
         vec_lsi = lsi[vec_bow]
         sims = index[vec_lsi]
         sims = sorted(enumerate(sims), key=lambda item: -item[1])
         return sims
-    
-    def create_model(contents, url, path, name):
-        if  HighlightedParser.model_exist(name + 'deerwester.mm', path):
-            print('model exist')   
+
+    def create_model(documents, path, name):
+        if HighlightedParser.model_exist(name + 'deerwester.mm', path):
+            print('model exist')
             dictionary = corpora.Dictionary.load(path + '/' + name + 'dictionary.dict')
-            corpus =  corpora.MmCorpus(path + '/' + name + 'deerwester.mm')
+            corpus = corpora.MmCorpus(path + '/' + name + 'deerwester.mm')
         else:
-            documents = contents
             stoplist = set(stopwords.words('english'))
-            texts = [[word for word in document.lower().split() if word not in stoplist]
-                        for document in documents]
+            texts = []
+            for document in documents:
+                texts.append([word for word in document.lower().split() if word not in stoplist])
             # remove words that appear only once
             frequency = defaultdict(int)
             for text in texts:
                 for token in text:
                     frequency[token] += 1
             texts = [[token for token in text if frequency[token] > 1]
-                for text in texts]
-            dictionary = corpora.Dictionary(texts) 
-            dictionary.save(path + '/' + name + 'dictionary.dict')  # store the dictionary, for future reference.  
+                     for text in texts]
+            dictionary = corpora.Dictionary(texts)
+            dictionary.save(path + '/' + name + 'dictionary.dict')  # store the dictionary, for future reference.
             corpus = [dictionary.doc2bow(text) for text in texts]
-            corpora.MmCorpus.serialize(path + '/' + name + 'deerwester.mm', corpus)  # store to disk, for later use.  
-            corpus = corpora.MmCorpus(path + '/' + name + 'deerwester.mm') 
+            corpora.MmCorpus.serialize(path + '/' + name + 'deerwester.mm', corpus)  # store to disk, for later use.
+            corpus = corpora.MmCorpus(path + '/' + name + 'deerwester.mm')
             print('model created')
         return corpus, dictionary
-    
-    def create_answ(sims, min_ratio, num_of_answ):
-        answ = []
+
+    def create_answer(sims, min_ratio, num_of_answ):
+        answer = []
         for i in range(0, num_of_answ):
-            if sims[i][1] < min_ratio/100:
+            if sims[i][1] < min_ratio / 100:
                 break
             else:
-                answ.append(sims[i])
-        return answ
-        
-    def getSimilarDocuments(sent, request):
-        documents = nltk.sent_tokenize(sent)
-        stoplist = set(stopwords.words('english'))
-        texts = [[word for word in document.lower().split() if word not in stoplist]
-                    for document in documents]
-        # remove words that appear only once
-        frequency = defaultdict(int)
-        for text in texts:
-            for token in text:
-                frequency[token] += 1
-        texts = [[token for token in text if frequency[token] > 1]
-            for text in texts]
-        dictionary = corpora.Dictionary(texts) 
-        corpus = [dictionary.doc2bow(text) for text in texts]
-        lsi = models.LsiModel(corpus=corpus, id2word=dictionary,num_topics=100)
-        index = similarities.MatrixSimilarity(lsi[corpus])
+                answer.append(sims[i])
+        return answer
+
+    def get_similar_documents(dictionary, lsi, index, request):
         vec_bow = dictionary.doc2bow(request.lower().split())
         vec_lsi = lsi[vec_bow]
         sims = index[vec_lsi]
         sims = sorted(enumerate(sims), key=lambda item: -item[1])
         return sims[0][1]
-        
-    def group_answer(answer,sentences, request, request_len, min_ratio):
+
+    def create_request_model(request, name_request, path):
+        if HighlightedParser.model_exist(name_request + 'request.index', path):
+            dictionary = corpora.Dictionary.load(path + '/' + name_request + 'request.dict')
+            lsi = models.LsiModel.load(path + '/' + name_request + 'request.lsi')
+            index = similarities.MatrixSimilarity.load(path + '/' + name_request + 'request.index')
+            print('request already exist')
+        else:
+            documents = nltk.sent_tokenize(request)
+            stoplist = set(stopwords.words('english'))
+            texts = [[word for word in document.lower().split() if word not in stoplist]
+                     for document in documents]
+            # remove words that appear only once
+            frequency = defaultdict(int)
+            for text in texts:
+                for token in text:
+                    frequency[token] += 1
+            texts = [[token for token in text if frequency[token] > 1]
+                     for text in texts]
+            dictionary = corpora.Dictionary(texts)
+            dictionary.save(path + '/' + name_request + 'request.dict')
+            if len(dictionary) == 0:
+                return 0
+            corpus = [dictionary.doc2bow(text) for text in texts]
+            lsi = models.LsiModel(corpus=corpus, id2word=dictionary, num_topics=100)
+            lsi.save(path + '/' + name_request + 'request.lsi')
+            index = similarities.MatrixSimilarity(lsi[corpus])
+            index.save(path + '/' + name_request + 'request.index')
+            print('request created')
+        return dictionary, lsi, index
+
+    def group_answer(dictionary, lsi, index, answer, sentences, request, request_len, min_ratio):
         new_answ = sorted(answer)
-        hightlighted_texts = []
-        hightlighted_texts.append(sentences[new_answ[0][0]])
+        hightlighted_texts = [sentences[new_answ[0][0]]]
         current = 0
         for i in range(1, len(new_answ)):
             if new_answ[i][0] == new_answ[i - 1][0]:
@@ -190,77 +207,67 @@ class HighlightedParser:
                 hightlighted_texts[current] = hightlighted_texts[current] + ' ' + sentences[new_answ[i][0]]
                 continue
             hightlighted_texts.append(sentences[new_answ[i][0]])
-            current = current + 1
+            current += 1
         answ = {}
         for i in range(0, len(hightlighted_texts)):
             ratio = 0
             hightlighted_texts_tosent = nltk.sent_tokenize(hightlighted_texts[i])
             if len(hightlighted_texts_tosent) > request_len:
-                ratio = HighlightedParser.getSimilarDocuments(request, hightlighted_texts[i])
+                ratio = HighlightedParser.get_similar_documents(dictionary, lsi, index, hightlighted_texts[i])
             else:
                 for j in range(0, len(hightlighted_texts_tosent)):
-                    ratio = ratio + HighlightedParser.getSimilarDocuments(request, hightlighted_texts_tosent[j])
+                    ratio = ratio + HighlightedParser.get_similar_documents(dictionary, lsi, index,
+                                                                            hightlighted_texts_tosent[j])
                 ratio = ratio / request_len
-            if ratio * 100 < min_ratio:
+            ratio *= 100
+            if ratio < min_ratio:
                 continue
             else:
-                answ.update({hightlighted_texts[i] : str(ratio * 100) + '%'})
+                answ.update({hightlighted_texts[i]: str(ratio) + '%'})
         return answ
-        
+
     @staticmethod
-    def LSI_for_finding_request(url, request, min_ratio, num_of_answ):
+    def lsi_for_finding_request(contents, name, path, request, min_ratio, num_of_answ):
         logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s', level=logging.INFO)
-        name = hashlib.md5(url.encode())
-        name = str(name.hexdigest())
-        path = os.getcwd()
-        try:
-            os.mkdir(path + '/data')
-            print('data created')
-        except:
-            print('data exist')
-        try:
-            os.mkdir(path + '/data/' + name)
-        except:
-            pass
-        path = path + '/data/' + name 
-        contents = HighlightedParser.create_contents(url, path, name)
-        model = HighlightedParser.create_model(contents , url , path ,name)
+        model = HighlightedParser.create_model(contents, path, name)
         corpus = model[0]
         id2word = model[1]
         dictionary = model[1]
-        if  HighlightedParser.model_exist(name + 'model.lsi', path):
+        if HighlightedParser.model_exist(name + 'model.lsi', path):
             lsi = models.LsiModel.load(path + '/' + name + 'model.lsi')
             print('lsi loaded')
         else:
-            lsi = models.LsiModel(corpus,id2word=id2word)
+            lsi = models.LsiModel(corpus, id2word=id2word)
             lsi.save(path + '/' + name + 'model.lsi')
         doc = request
         request_sent = nltk.sent_tokenize(doc)
+        name_request = hashlib.md5(request.encode())
+        name_request = str(name_request.hexdigest())
+        try:
+            os.mkdir(path + '/history')
+            print('history created')
+        except:
+            print('history exist')
+        path_request = path + '/history'
         if len(request_sent) == 1:
-            sims = HighlightedParser.find_similar(lsi, request, corpus, dictionary, path,name)
+            sims = HighlightedParser.find_similar(lsi, request, corpus, dictionary, path, name)
             answ = HighlightedParser.answer(contents, sims, min_ratio, num_of_answ)
         else:
+            request_model = HighlightedParser.create_request_model(request, name_request, path_request)
+            request_dictionary = request_model[0]
+            request_lsi = request_model[1]
+            request_index = request_model[2]
             answ = []
             hightlighted_texts = []
             for i in range(0, len(request_sent)):
-                sims = HighlightedParser.find_similar(lsi, request_sent[i], corpus, dictionary , path,name)
-                best_sims = HighlightedParser.create_answ(sims, min_ratio, num_of_answ)
-                for i in range(0, len(best_sims)):
-                    hightlighted_texts.append(best_sims[i])
-                answ = HighlightedParser.group_answer(hightlighted_texts, contents, doc, len(request_sent), min_ratio)
+                sims = HighlightedParser.find_similar(lsi, request_sent[i], corpus, dictionary, path, name)
+                best_sims = HighlightedParser.create_answer(sims, min_ratio, num_of_answ)
+                for top_sim in best_sims:
+                    hightlighted_texts.append(top_sim)
+                answ = HighlightedParser.group_answer(request_dictionary, request_lsi, request_index,
+                                                      hightlighted_texts, contents, doc, len(request_sent), min_ratio)
         return answ
-        
-    @staticmethod
-    def extract_html_text(html):
-        """
-        Represents the HTML text like as the sequence of words and punctuations.
-        :return: [str]
-        """
-        soup = BeautifulSoup(html, 'html5lib')
-        pretty_html = soup.prettify(formatter=lambda s: s.replace('\xa0', ' '))
-        soup = BeautifulSoup(pretty_html, 'html5lib')
-        return soup.get_text()
-        
+
     def prepare_text(self, text):
         """
         Delete the noise symbols from the text.
@@ -289,10 +296,9 @@ class HighlightedParser:
         """
 
         searching_text = self.prepare_text(searching_text)
-        text = self.prepare_text(text)
-
         searching_text_pattern = searching_text.replace("(", "\(")
         searching_text_pattern = searching_text_pattern.replace(")", "\)")
+        text = ' '.join(text)
         if ignore_money:
             searching_text_pattern = re.sub(self.money_pattern, self.money_pattern, searching_text_pattern)
         if ignore_date:
@@ -320,9 +326,10 @@ class HighlightedParser:
         ratio = fuzz.partial_ratio(s, pattern)
         return index, ratio, s
 
-    def fuzzy_find_all(self, pattern, text, min_ratio=75, depth=2, min_sentence_length=2):
+    def fuzzy_find_all(self, pattern, sentences, min_ratio=75, depth=2, min_sentence_length=2):
         """
 
+        :param sentences:
         :param pattern:
         :param text:
         :param min_ratio:
@@ -336,17 +343,12 @@ class HighlightedParser:
         t0 = time()
 
         pattern = self.prepare_text(pattern)
-        text = self.prepare_text(text)
-
         pattern = pattern.replace("(", "\(")
         pattern = pattern.replace(")", "\)")
 
         if depth == 0:
             pattern_sentences = self.split_sentences(pattern)
             depth = len(pattern_sentences)
-
-        sentences = self.split_sentences(text)
-        sentences = [s for s in sentences if len(s.split(' ')) > min_sentence_length]
 
         'run multiprocessing calculation'
         cpu_count = multiprocessing.cpu_count()
@@ -460,3 +462,4 @@ if __name__ == "__main__":
     print("Mathces_2: {}\n".format(matches_2))
     print("Mathces_3: {}\n".format(matches_3))
     print("fuzzy matching: {}".format(fuzzy_match))
+
