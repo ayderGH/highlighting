@@ -214,7 +214,8 @@ class HighlightedParser:
                 print('model created')
         return corpus, dictionary
 
-    def find_similar(self, lsi, doc, corpus, dictionary, model_name):
+    # lsi_top?
+    def find_similar(self, lsi, doc, corpus, dictionary, model_name, min_ratio, ncount):
         model_name += "simIndex.index"
         model_path = os.path.join(self.lsi_models_path, model_name)
         if self.lsi_model_exist(model_name):
@@ -230,31 +231,10 @@ class HighlightedParser:
         vec_lsi = lsi[vec_bow]
         sims = index[vec_lsi]
         sims = sorted(enumerate(sims), key=lambda item: -item[1])
-        return sims
+        sims = [sim for sim in sims if sims[][] > min_ratio]
+        return sims[0:ncount]
 
-    @staticmethod
-    def answer(contents, sims, min_ratio, num_of_answ):
-        """???"""
-        answer = {}
-        try:
-            for j in range(0, num_of_answ):
-                if sims[j][1] < min_ratio:
-                    break
-                answer.update({contents[sims[j][0]]: str(sims[j][1])})
-        except:
-            print("Unexpected error:", sys.exc_info()[0])
-        return answer
-
-    def create_answer(sims, min_ratio, num_of_answ):
-        answer = []
-        for i in range(0, num_of_answ):
-            if sims[i][1] < min_ratio:
-                break
-            else:
-                answer.append(sims[i])
-        return answer
-
-    @staticmethod
+    # ???
     def get_similar_documents(dictionary, lsi, index, request):
         vec_bow = dictionary.doc2bow(request.lower().split())
         vec_lsi = lsi[vec_bow]
@@ -262,35 +242,36 @@ class HighlightedParser:
         sims = sorted(enumerate(sims), key=lambda item: -item[1])
         return sims[0][1]
 
-    # def create_request_model(request, name_request, path):
-    #     if HighlightedParser.lsi_model_exist(name_request + 'request.index', path):
-    #         dictionary = corpora.Dictionary.load(path + '/' + name_request + 'request.dict')
-    #         lsi = models.LsiModel.load(path + '/' + name_request + 'request.lsi')
-    #         index = similarities.MatrixSimilarity.load(path + '/' + name_request + 'request.index')
-    #         print('request already exist')
-    #     else:
-    #         documents = nltk.sent_tokenize(request)
-    #         stoplist = set(stopwords.words('english'))
-    #         texts = [[word for word in document.lower().split() if word not in stoplist]
-    #                  for document in documents]
-    #         # remove words that appear only once
-    #         frequency = defaultdict(int)
-    #         for text in texts:
-    #             for token in text:
-    #                 frequency[token] += 1
-    #         texts = [[token for token in text if frequency[token] > 1]
-    #                  for text in texts]
-    #         dictionary = corpora.Dictionary(texts)
-    #         dictionary.save(path + '/' + name_request + 'request.dict')
-    #         if len(dictionary) == 0:
-    #             return 0
-    #         corpus = [dictionary.doc2bow(text) for text in texts]
-    #         lsi = models.LsiModel(corpus=corpus, id2word=dictionary, num_topics=100)
-    #         lsi.save(path + '/' + name_request + 'request.lsi')
-    #         index = similarities.MatrixSimilarity(lsi[corpus])
-    #         index.save(path + '/' + name_request + 'request.index')
-    #         print('request created')
-    #     return dictionary, lsi, index
+    # 
+    def create_request_model(request, name_request, path):
+        if HighlightedParser.lsi_model_exist(name_request + 'request.index', path):
+            dictionary = corpora.Dictionary.load(path + '/' + name_request + 'request.dict')
+            lsi = models.LsiModel.load(path + '/' + name_request + 'request.lsi')
+            index = similarities.MatrixSimilarity.load(path + '/' + name_request + 'request.index')
+            print('request already exist')
+        else:
+            documents = nltk.sent_tokenize(request)
+            stoplist = set(stopwords.words('english'))
+            texts = [[word for word in document.lower().split() if word not in stoplist]
+                     for document in documents]
+            # remove words that appear only once
+            frequency = defaultdict(int)
+            for text in texts:
+                for token in text:
+                    frequency[token] += 1
+            texts = [[token for token in text if frequency[token] > 1]
+                     for text in texts]
+            dictionary = corpora.Dictionary(texts)
+            dictionary.save(path + '/' + name_request + 'request.dict')
+            if len(dictionary) == 0:
+                return 0
+            corpus = [dictionary.doc2bow(text) for text in texts]
+            lsi = models.LsiModel(corpus=corpus, id2word=dictionary, num_topics=100)
+            lsi.save(path + '/' + name_request + 'request.lsi')
+            index = similarities.MatrixSimilarity(lsi[corpus])
+            index.save(path + '/' + name_request + 'request.index')
+            print('request created')
+        return dictionary, lsi, index
 
     def group_answer(dictionary, lsi, index, answer, sentences, request, request_len, min_ratio):
         new_answ = sorted(answer)
