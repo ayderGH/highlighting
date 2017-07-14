@@ -17,6 +17,7 @@ from os.path import isfile, join
 import urllib.request
 import hashlib
 import json
+import numpy as np
 
 
 class HighlightedParser:
@@ -34,6 +35,8 @@ class HighlightedParser:
         self.newline = '<NEWLINE>'
         self.lsi_models_path = lsi_models_path if lsi_models_path else 'data'
         self.verbose = verbose
+        self.sentences = 'sentences.json'
+        self.model_files = ['corpus.mm', 'dictionary.dict', 'model.lsi', 'simIndex.index']
 
     def prepare_text(self, text):
         """
@@ -132,17 +135,22 @@ class HighlightedParser:
         return best_ratios[0] if len(best_ratios) > 0 else ""
 
     # Latent Semantic Indexing
-    def lsi_model_exist(self, model_name):
+    def lsi_model_exist(self):
         onlyfiles = [f for f in listdir(self.lsi_models_path) if isfile(join(self.lsi_models_path, f))]
-        return bool(model_name in onlyfiles)
+        return np.any(np.in1d(self.model_files, onlyfiles))
 
-    def create_contents(self, url, model_name):
+    def sentences_exist(self):
+        return os.path.isfile(os.path.join(self.lsi_models_path, self.sentences))
+
+    def create_sentences(self, url):
         """
         Determine by what tag the document is written. Extrarting content.
+        :param url
+        :return sentences: clear sentences of html doc
         """
-        model_name += '.json'
-        if HighlightedParser.lsi_model_exist(model_name, self.lsi_models_path):
-            with open(self.lsi_models_path + '/' + model_name) as json_data:
+        model_path = os.path.join(self.lsi_models_path, self.sentences)
+        if self.sentences_exist():
+            with open(model_path) as json_data:
                 sentences = json.load(json_data)
             if self.verbose:
                 print('content exist')
@@ -175,25 +183,25 @@ class HighlightedParser:
                         if len(nltk.word_tokenize(sent[j])) < 3:
                             continue
                         sentences.append(sent[j])
-            with open(self.lsi_models_path + '/' + model_name, 'w') as fp:
+            with open(model_path, 'w') as fp:
                 json.dump(sentences, fp)
             if self.verbose:
                 print('content created')
         return sentences
 
-    def create_lsi_model(self, content, model_name):
+    def create_lsi_model(self, content):
         """
         Build LSA Model
         :param content: Colection of documents for LS Indexing.
-        :param model_name: Model name.
-        :return: Corpus and Dictionary
+        :return: Corpus, Dictionary, lsi model and matrix of similarity
         """
-        model_path = os.path.join(self.lsi_models_path, model_name)
-        if self.lsi_model_exist(model_name + 'deerwester.mm'):
+        if self.lsi_model_exist():
             if self.verbose:
                 print('model exist')
-            dictionary = corpora.Dictionary.load(model_path + 'dictionary.dict')
-            corpus = corpora.MmCorpus(model_path + 'deerwester.mm')
+            dictionary = corpora.Dictionary.load(os.path.join(self.lsi_models_path, 'dictionary.dict'))
+            corpus = corpora.MmCorpus(os.path.join(self.lsi_models_path, 'corpus.mm'))
+            lsi = models.LsiModel.load(os.path.join(self.lsi_models_path, 'model.lsi'))
+            index = similarities.MatrixSimilarity.load(os.path.join(self.lsi_models_path, 'simIndex.index'))
         else:
             stoplist = set(stopwords.words('english'))
             texts = []
@@ -206,74 +214,64 @@ class HighlightedParser:
                     frequency[token] += 1
             texts = [[token for token in text if frequency[token] > 1] for text in texts]
             dictionary = corpora.Dictionary(texts)
-            dictionary.save(model_path + 'dictionary.dict')  # store the dictionary, for future reference.
+            dictionary.save(os.path.join(self.lsi_models_path, 'dictionary.dict'))  # store the dictionary, for future reference.
             corpus = [dictionary.doc2bow(text) for text in texts]
-            corpora.MmCorpus.serialize(model_path + 'deerwester.mm', corpus)  # store to disk, for later use.
-            corpus = corpora.MmCorpus(model_path + 'deerwester.mm')
+            corpora.MmCorpus.serialize((os.path.join(self.lsi_models_path, 'corpus.mm')), corpus)  # store to disk, for later use.
+            corpus = corpora.MmCorpus(os.path.join(self.lsi_models_path, 'corpus.mm'))
+            lsi = models.LsiModel(corpus, id2word=dictionary)
+            lsi.save(os.path.join(self.lsi_models_path, 'model.lsi'))
+            index = similarities.MatrixSimilarity(lsi[corpus])
+            index.save(os.path.join(self.lsi_models_path, 'simIndex.index'))
             if self.verbose:
                 print('model created')
-        return corpus, dictionary
+        return dictionary, corpus, lsi, index
 
-    # lsi_top?
-    def find_similar(self, lsi, doc, corpus, dictionary, model_name, min_ratio, ncount):
-        model_name += "simIndex.index"
-        model_path = os.path.join(self.lsi_models_path, model_name)
-        if self.lsi_model_exist(model_name):
-            index = similarities.MatrixSimilarity.load(model_path)
-            if self.verbose:
-                print('matrix similarity was loaded successfully')
-        else:
-            index = similarities.MatrixSimilarity(lsi[corpus])
-            index.save(model_path)
-            if self.verbose:
-                print('matrix similarity was created successfully')
-        vec_bow = dictionary.doc2bow(doc.lower().split())
-        vec_lsi = lsi[vec_bow]
-        sims = index[vec_lsi]
-        sims = sorted(enumerate(sims), key=lambda item: -item[1])
-        sims = [sim for sim in sims if sims[][] > min_ratio]
-        return sims[0:ncount]
+    @staticmethod
+    def answer(sims, min_ratio, num_of_answ):
+        answer = [counter for counter in sims if counter[1] > min_ratio]
+        return answer[0:num_of_answ]
 
-    # ???
-    def get_similar_documents(dictionary, lsi, index, request):
+    def find_similar(dictionary, lsi, index, request):
         vec_bow = dictionary.doc2bow(request.lower().split())
         vec_lsi = lsi[vec_bow]
         sims = index[vec_lsi]
         sims = sorted(enumerate(sims), key=lambda item: -item[1])
-        return sims[0][1]
+        return sims
 
-    # 
-    def create_request_model(request, name_request, path):
-        if HighlightedParser.lsi_model_exist(name_request + 'request.index', path):
-            dictionary = corpora.Dictionary.load(path + '/' + name_request + 'request.dict')
-            lsi = models.LsiModel.load(path + '/' + name_request + 'request.lsi')
-            index = similarities.MatrixSimilarity.load(path + '/' + name_request + 'request.index')
-            print('request already exist')
-        else:
-            documents = nltk.sent_tokenize(request)
-            stoplist = set(stopwords.words('english'))
-            texts = [[word for word in document.lower().split() if word not in stoplist]
-                     for document in documents]
-            # remove words that appear only once
-            frequency = defaultdict(int)
-            for text in texts:
-                for token in text:
-                    frequency[token] += 1
-            texts = [[token for token in text if frequency[token] > 1]
-                     for text in texts]
-            dictionary = corpora.Dictionary(texts)
-            dictionary.save(path + '/' + name_request + 'request.dict')
-            if len(dictionary) == 0:
-                return 0
-            corpus = [dictionary.doc2bow(text) for text in texts]
-            lsi = models.LsiModel(corpus=corpus, id2word=dictionary, num_topics=100)
-            lsi.save(path + '/' + name_request + 'request.lsi')
-            index = similarities.MatrixSimilarity(lsi[corpus])
-            index.save(path + '/' + name_request + 'request.index')
-            print('request created')
+    def create_request_model(self, request):
+        """
+        :param request: 
+        :return: dictionary, lsi model and matrix of similarity for request
+        """
+        documents = nltk.sent_tokenize(request)
+        stoplist = set(stopwords.words('english'))
+        texts = [[word for word in document.lower().split() if word not in stoplist]
+                 for document in documents]
+        # remove words that appear only once
+        frequency = defaultdict(int)
+        for text in texts:
+            for token in text:
+                frequency[token] += 1
+        texts = [[token for token in text if frequency[token] > 1]
+                 for text in texts]
+        dictionary = corpora.Dictionary(texts)
+        if len(dictionary) == 0:
+            return 0
+        corpus = [dictionary.doc2bow(text) for text in texts]
+        lsi = models.LsiModel(corpus=corpus, id2word=dictionary, num_topics=100)
+        index = similarities.MatrixSimilarity(lsi[corpus])
         return dictionary, lsi, index
 
-    def group_answer(dictionary, lsi, index, answer, sentences, request, request_len, min_ratio):
+    def group_answer(dictionary, lsi, index, answer, sentences, request_len, min_ratio):
+        """
+        :param lsi: lsi model
+        :param index: matrix of similarity
+        :param answer:
+        :param sentences:
+        :param request_len:
+        :param min_ratio:
+        :return: dictionary that consist sentences grouped in response and their level of similarity
+        """
         new_answ = sorted(answer)
         hightlighted_texts = [sentences[new_answ[0][0]]]
         current = 0
@@ -281,7 +279,7 @@ class HighlightedParser:
             if new_answ[i][0] == new_answ[i - 1][0]:
                 continue
             if new_answ[i][0] == new_answ[i - 1][0] + 1:
-                hightlighted_texts[current] = hightlighted_texts[current] + ' ' + sentences[new_answ[i][0]]
+                hightlighted_texts[current] += ' ' + sentences[new_answ[i][0]]
                 continue
             hightlighted_texts.append(sentences[new_answ[i][0]])
             current += 1
@@ -290,12 +288,12 @@ class HighlightedParser:
             ratio = 0
             hightlighted_texts_tosent = nltk.sent_tokenize(hightlighted_texts[i])
             if len(hightlighted_texts_tosent) > request_len:
-                ratio = HighlightedParser.get_similar_documents(dictionary, lsi, index, hightlighted_texts[i])
+                ratio = HighlightedParser.find_similar(dictionary, lsi, index, hightlighted_texts[i])[0][1]
             else:
                 for j in range(0, len(hightlighted_texts_tosent)):
-                    ratio = ratio + HighlightedParser.get_similar_documents(dictionary, lsi, index,
-                                                                            hightlighted_texts_tosent[j])
-                ratio = ratio / request_len
+                    ratio += HighlightedParser.find_similar(dictionary, lsi, index,
+                                                            hightlighted_texts_tosent[j])[0][1]
+                ratio /= request_len
             ratio *= 100
             if ratio < min_ratio:
                 continue
@@ -303,47 +301,35 @@ class HighlightedParser:
                 answ.update({hightlighted_texts[i]: str(ratio) + '%'})
         return answ
 
-    def lsi_search(self, content, model_name, request, min_ratio, num_of_answ):
+    def lsi_search(self, sentences, request, min_ratio, num_of_answ):
+        """
+        :param sentences:
+        :param request:
+        :param min_ratio:
+        :param num_of_answ:
+        :return: a dictionary containing the highlighted text and its level of similarity
+        """
         logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s', level=logging.INFO)
-
-        model_path = os.path.join(self.lsi_models_path, model_name)
-        model = self.create_lsi_model(content, model_name)
-        corpus = model[0]
-        id2word = model[1]
-        dictionary = model[1]
-        if self.lsi_model_exist(model_name + 'model.lsi'):
-            lsi = models.LsiModel.load(model_path + 'model.lsi')
-            print('lsi loaded')
-        else:
-            lsi = models.LsiModel(corpus, id2word=id2word)
-            lsi.save(model_path + 'model.lsi')
-        doc = request
-        request_sent = nltk.sent_tokenize(doc)
-        name_request = hashlib.md5(request.encode())
-        name_request = str(name_request.hexdigest())
-        try:
-            os.mkdir(self.lsi_models_path + '/history')
-            if self.verbose:
-                print('history created')
-        except:
-            print('history exist')
-
-        path_request = self.lsi_models_path + '/history'
+        request_sent = nltk.sent_tokenize(request)
+        model = self.create_lsi_model(sentences)
+        answ = {}
         if len(request_sent) == 1:
-            sims = self.find_similar(lsi, request, corpus, dictionary, model_name)
-            answ = self.answer(content, sims, min_ratio, num_of_answ)
+            sims = HighlightedParser.find_similar(model[0], model[2], model[3], request)
+            sims = self.answer(sims, min_ratio/100, num_of_answ)
+            for sim in sims:
+                answ.update({sentences[sim[0]] : str(sim[1]*100) + '%'})
         else:
-            request_model = self.create_request_model(request, name_request, path_request)
+            request_model = self.create_request_model(request)
             request_dictionary = request_model[0]
             request_lsi = request_model[1]
             request_index = request_model[2]
-            answ = []
             hightlighted_texts = []
             for i in range(0, len(request_sent)):
-                sims = HighlightedParser.find_similar(lsi, request_sent[i], corpus, dictionary, self.lsi_models_path, model_name)
-                best_sims = HighlightedParser.create_answer(sims, min_ratio, num_of_answ)
+                sims = HighlightedParser.find_similar(model[0], model[2], model[3], request_sent[i])
+                best_sims = HighlightedParser.answer(sims, min_ratio/100, num_of_answ)
                 for top_sim in best_sims:
                     hightlighted_texts.append(top_sim)
                 answ = HighlightedParser.group_answer(request_dictionary, request_lsi, request_index,
-                                                      hightlighted_texts, content, doc, len(request_sent), min_ratio)
+                                                      hightlighted_texts, sentences, len(request_sent),
+                                                      min_ratio)
         return answ
