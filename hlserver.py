@@ -24,20 +24,23 @@ class HighlightedServer(object):
         ignore_money = bool(data['ignore_money']) if 'ignore_money' in data.keys() else True
         ignore_date = bool(data['ignore_date']) if 'ignore_date' in data.keys() else True
         fuzzy = bool(data['fuzzy']) if 'fuzzy' in data.keys() else False
-        LSI = bool(data['LSI']) if 'LSI' in data.keys() else False
+        lsi = bool(data['LSI']) if 'LSI' in data.keys() else False
         min_ratio = int(data['min_ratio']) if 'min_ratio' in data.keys() else 75
         depth = int(data['depth']) if 'depth' in data.keys() else 0
         min_sentence_length = int(data['min_sentence_length']) if 'min_sentence_length' in data.keys() else 3
         num_search = int(data['num_search']) if 'min_sentence_length' in data.keys() else 3
         force = bool(data['force']) if 'force' in data.keys() else False
+
         name = hashlib.md5(new_filing_url.encode())
         name = str(name.hexdigest())
         path = os.getcwd()
+
         try:
             os.mkdir(path + '/data')
             print('data created')
         except:
             print('data exist')
+
         path = path + '/data/' + name
         if force:
             try:
@@ -48,11 +51,12 @@ class HighlightedServer(object):
             os.mkdir(path)
         except:
             pass
+
         hp = HighlightedParser()
         new_filing_text = hp.create_contents(new_filing_url, path, name)
         if not fuzzy:
-            if LSI:
-                sentence = hp.lsi_for_finding_request(new_filing_text, name, path, highlighted_text, min_ratio, num_search)
+            if lsi:
+                sentence = hp.lsi_search(new_filing_text, name, path, highlighted_text, min_ratio, num_search)
             else:
                 sentence = hp.find(highlighted_text, new_filing_text, ignore_money=ignore_money, ignore_date=ignore_date)
         else:
